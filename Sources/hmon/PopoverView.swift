@@ -3,6 +3,10 @@ import SwiftUI
 struct PopoverView: View {
     @ObservedObject var stats: StatsModel
     var onQuit: () -> Void
+    /// Called whenever the measured content height settles. The popover host
+    /// uses this to keep `NSPopover.contentSize` in sync — without it the
+    /// popover anchors against a stale size and drifts off its status item.
+    var onHeightChange: ((CGFloat) -> Void)? = nil
 
     @AppStorage(Prefs.menuTemp) private var menuTemp: Bool = true
     @AppStorage(Prefs.menuMem)  private var menuMem:  Bool = true
@@ -14,7 +18,10 @@ struct PopoverView: View {
     @State private var launchAtLogin: Bool = LaunchAtLogin.isEnabled
     @State private var sensorsExpanded: Bool = true
     @State private var coresExpanded: Bool = false
-    @State private var contentHeight: CGFloat = 0
+    /// Seeded to the default popover height rather than 0 so the very first
+    /// layout pass isn't degenerate (a 0-height frame makes NSPopover place a
+    /// collapsed window it never recovers from).
+    @State private var contentHeight: CGFloat = 380
 
     private var snap: StatsSnapshot { stats.live }
 
@@ -44,15 +51,25 @@ struct PopoverView: View {
             )
         }
         .frame(width: 300, height: min(contentHeight, maxPopoverHeight))
-        .onPreferenceChange(ContentHeightKey.self) { contentHeight = $0 }
+        .onPreferenceChange(ContentHeightKey.self) { measured in
+            guard measured > 1 else { return }
+            contentHeight = measured
+            onHeightChange?(min(measured, maxPopoverHeight))
+        }
     }
 
-    /// Cap the popover at 92% of the visible screen height. The outer
-    /// ScrollView only kicks in when content exceeds this.
+    /// Largest content height that still lets the popover sit fully between the
+    /// menu bar and the bottom of the visible area. `visibleFrame.height` is
+    /// exactly that gap; subtract NSPopover's own chrome (13-pt inset on each
+    /// side, arrow included) plus a small breathing margin. The outer
+    /// ScrollView kicks in when content exceeds this.
     private var maxPopoverHeight: CGFloat {
-        let visible = NSScreen.main?.visibleFrame.height ?? 800
-        return visible * 0.92
+        guard let visible = NSScreen.main?.visibleFrame.height else { return 600 }
+        return max(240, visible - Self.popoverChrome - 12)
     }
+
+    /// Total window padding NSPopover adds around its content view.
+    static let popoverChrome: CGFloat = 26
 
     // MARK: Sensors list
 

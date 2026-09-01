@@ -53,9 +53,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.animates = true
         popover.contentSize = NSSize(width: 300, height: 380)
         popover.contentViewController = NSHostingController(
-            rootView: PopoverView(stats: stats) { [weak self] in
-                NSApp.terminate(self)
-            }
+            rootView: PopoverView(
+                stats: stats,
+                onQuit: { [weak self] in NSApp.terminate(self) },
+                onHeightChange: { [weak self] height in
+                    self?.syncPopoverHeight(height)
+                }
+            )
         )
 
         // Rebuild the menu bar title and resync the desktop widget whenever
@@ -185,10 +189,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // The popover takes over — dismiss the hover so they don't overlap.
             hover.hide()
             stats.setPopoverActive(true)
+            // NSPopover positions its window from `contentSize` at show time and
+            // never re-anchors when the hosted SwiftUI view later resizes itself.
+            // Measure first so the very first placement uses the real height.
+            sizePopoverToContent()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.becomeKey()
             startEventMonitor()
         }
+    }
+
+    /// Forces a layout pass on the hosted SwiftUI view and adopts its fitting
+    /// height, so `popover.show` anchors against the size it will actually be.
+    private func sizePopoverToContent() {
+        guard let host = popover.contentViewController?.view else { return }
+        host.layoutSubtreeIfNeeded()
+        let fitting = host.fittingSize.height
+        guard fitting > 1 else { return }
+        syncPopoverHeight(fitting)
+    }
+
+    /// Keeps `NSPopover.contentSize` in step with the SwiftUI content. Clamped
+    /// to the gap below the menu bar so a tall popover can never be placed
+    /// partly off-screen, and guarded against re-entrant layout feedback.
+    private func syncPopoverHeight(_ height: CGFloat) {
+        let available = NSScreen.main?.visibleFrame.height ?? 800
+        let maxHeight = max(240, available - PopoverView.popoverChrome - 12)
+        let clamped = min(height, maxHeight)
+        guard abs(popover.contentSize.height - clamped) > 0.5 else { return }
+        popover.contentSize = NSSize(width: popover.contentSize.width, height: clamped)
     }
 
     private func startEventMonitor() {
