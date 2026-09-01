@@ -4,6 +4,8 @@ import Combine
 struct StatsSnapshot {
     var cpuTemp: Double? = nil
     var gpuTemp: Double? = nil
+    var batteryTemp: Double? = nil
+    var battery: BatteryInfo? = nil
     var cpuUsePct: Double = 0
     var cpuPerCorePct: [Double] = []
     var memUsedGB: Double = 0
@@ -27,13 +29,14 @@ struct StatsHistory {
 
     var cpuTemp:    [Float] = []
     var gpuTemp:    [Float] = []
+    var battTemp:   [Float] = []
     var cpuUse:     [Float] = []
     var cpuPerCore: [[Float]] = []
     var memPct:     [Float] = []
     var netIn:      [Float] = []
     var netOut:     [Float] = []
 
-    mutating func append(cpu: Double?, gpu: Double?,
+    mutating func append(cpu: Double?, gpu: Double?, battery: Double?,
                          cpuUseTotal cuTotal: Double?,
                          cpuUsePerCore cuPer: [Double]?,
                          memPct mp: Double,
@@ -43,6 +46,8 @@ struct StatsHistory {
         cpuTemp.append(cpu.map(Float.init) ?? .nan)
         if gpuTemp.count >= cap { gpuTemp.removeFirst() }
         gpuTemp.append(gpu.map(Float.init) ?? .nan)
+        if battTemp.count >= cap { battTemp.removeFirst() }
+        battTemp.append(battery.map(Float.init) ?? .nan)
         if cpuUse.count >= cap { cpuUse.removeFirst() }
         cpuUse.append(cuTotal.map(Float.init) ?? .nan)
         let per = cuPer ?? []
@@ -69,6 +74,7 @@ enum Prefs {
     static let menuNet = "menuNet"
     static let menuCPU = "menuCPU"
     static let menuDisk = "menuDisk"
+    static let menuBattery = "menuBattery"
     static let desktopWidget = "desktopWidget"
 
     /// Defaults to `true` when the key has never been written.
@@ -100,6 +106,17 @@ final class StatsModel: ObservableObject {
     private var cachedDisk: SystemStats.Disk?
     private var cachedTemps: Sensors.Classification =
         Sensors.Classification(cpu: nil, gpu: nil, cpuNames: [], gpuNames: [])
+    private var cachedBattery: BatteryInfo?
+    /// Apple's smoothed maximum-capacity figure. Fetched by shelling out to the
+    /// entitled `system_profiler`, so it lives on its own slow cadence and its
+    /// own queue — never on the 2 s tick. Mutated only on `queue`.
+    private var appleHealthPct: Double?
+    private var appleHealthFetchedAt: Date?
+    private var appleHealthFetchInFlight = false
+    private let profilerQueue = DispatchQueue(label: "hmon.systemprofiler", qos: .utility)
+    /// Battery wear is a multi-day process; re-asking more often than this
+    /// would just be spawning processes for nothing.
+    private static let appleHealthMaxAge: TimeInterval = 15 * 60
 
     func start() {
         let t = DispatchSource.makeTimerSource(queue: queue)
@@ -129,6 +146,10 @@ final class StatsModel: ObservableObject {
         let readings = Sensors.readAll()
         let classified = self.classifyWithFallback(readings)
         self.cachedTemps = classified
+        refreshAppleHealthIfStale()
+        var battery = BatteryInfo.read()
+        battery?.appleMaxCapacityPct = self.appleHealthPct
+        self.cachedBattery = battery
         let sorted = readings.sorted { $0.name < $1.name }
         let mem = SystemStats.memory()
         let disk = SystemStats.disk()
@@ -137,6 +158,8 @@ final class StatsModel: ObservableObject {
             self.snapshot.allSensors = sorted
             self.snapshot.cpuTemp = classified.cpu
             self.snapshot.gpuTemp = classified.gpu
+            self.snapshot.batteryTemp = battery?.temperature
+            self.snapshot.battery = battery
             self.snapshot.cpuSensorNames = classified.cpuNames
             self.snapshot.gpuSensorNames = classified.gpuNames
             self.snapshot.memUsedGB = mem.usedGB
@@ -162,6 +185,7 @@ final class StatsModel: ObservableObject {
         let wantNet     = Prefs.enabled(Prefs.menuNet)  || live
         let wantCPU     = Prefs.enabled(Prefs.menuCPU)  || live
         let wantDisk    = Prefs.enabled(Prefs.menuDisk) || live
+        let wantBattery = Prefs.enabled(Prefs.menuBattery) || live
         let wantSensors = live
 
         var memOut: SystemStats.Memory? = nil
@@ -202,6 +226,19 @@ final class StatsModel: ObservableObject {
             cachedDisk = nil
         }
 
+        // One IORegistry round trip (~0.4 ms). Health barely moves, so back off
+        // to every 5th tick (10 s) when only the menu bar is watching.
+        if wantBattery {
+            refreshAppleHealthIfStale()
+            if live || cachedBattery == nil || tickCount % 5 == 0 {
+                var battery = BatteryInfo.read()
+                battery?.appleMaxCapacityPct = appleHealthPct
+                cachedBattery = battery
+            }
+        } else {
+            cachedBattery = nil
+        }
+
         // IOKit sensor enumeration is the most expensive call here. Halve its
         // rate while the popover is closed (temps barely move in 4s). Skip
         // entirely when temp + sensors-list are both disabled.
@@ -223,11 +260,14 @@ final class StatsModel: ObservableObject {
                 cpu: nil, gpu: nil, cpuNames: [], gpuNames: [])
         }
         let temps = cachedTemps
+        let battery = cachedBattery
         let publishLive = live
 
         DispatchQueue.main.async {
             self.snapshot.cpuTemp = temps.cpu
             self.snapshot.gpuTemp = temps.gpu
+            self.snapshot.batteryTemp = battery?.temperature
+            self.snapshot.battery = battery
             self.snapshot.cpuSensorNames = temps.cpuNames
             self.snapshot.gpuSensorNames = temps.gpuNames
             if let memOut {
@@ -266,6 +306,7 @@ final class StatsModel: ObservableObject {
             self.snapshot.history.append(
                 cpu: wantTemp ? temps.cpu : nil,
                 gpu: wantTemp ? temps.gpu : nil,
+                battery: wantBattery ? battery?.temperature : nil,
                 cpuUseTotal:   cpuLoad?.totalPct,
                 cpuUsePerCore: cpuLoad?.perCorePct,
                 memPct: wantMem ? mp : .nan,
@@ -275,6 +316,25 @@ final class StatsModel: ObservableObject {
                 self.live = self.snapshot
             }
             self.onTick?()
+        }
+    }
+
+    /// Kicks off a `system_profiler` fetch when the cached figure has aged out.
+    /// Must be called on `queue`; the spawn itself happens elsewhere so a 0.13 s
+    /// process launch never stalls the tick.
+    private func refreshAppleHealthIfStale() {
+        guard !appleHealthFetchInFlight else { return }
+        if let fetchedAt = appleHealthFetchedAt,
+           Date().timeIntervalSince(fetchedAt) < Self.appleHealthMaxAge { return }
+        appleHealthFetchInFlight = true
+        profilerQueue.async { [weak self] in
+            let pct = AppleBatteryHealth.maximumCapacityPct()
+            self?.queue.async {
+                guard let self else { return }
+                self.appleHealthFetchInFlight = false
+                self.appleHealthFetchedAt = Date()
+                if let pct { self.appleHealthPct = pct }
+            }
         }
     }
 

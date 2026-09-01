@@ -13,11 +13,13 @@ struct PopoverView: View {
     @AppStorage(Prefs.menuNet)  private var menuNet:  Bool = true
     @AppStorage(Prefs.menuCPU)  private var menuCPU:  Bool = true
     @AppStorage(Prefs.menuDisk) private var menuDisk: Bool = true
+    @AppStorage(Prefs.menuBattery) private var menuBattery: Bool = true
     @AppStorage(Prefs.desktopWidget) private var desktopWidget: Bool = false
 
     @State private var launchAtLogin: Bool = LaunchAtLogin.isEnabled
-    @State private var sensorsExpanded: Bool = true
+    @State private var sensorsExpanded: Bool = false
     @State private var coresExpanded: Bool = false
+    @State private var batteryExpanded: Bool = false
     /// Seeded to the default popover height rather than 0 so the very first
     /// layout pass isn't degenerate (a 0-height frame makes NSPopover place a
     /// collapsed window it never recovers from).
@@ -35,6 +37,7 @@ struct PopoverView: View {
                 memSection
                 diskSection
                 netSection
+                batterySection
                 sensorList
                 Divider().opacity(0.4)
 //                 widgetToggle
@@ -255,15 +258,200 @@ struct PopoverView: View {
     private var tempSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionHeader("Temperature", systemImage: "thermometer", menuToggle: $menuTemp)
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 tempTile(label: "CPU", value: snap.cpuTemp, color: .orange)
                 tempTile(label: "GPU", value: snap.gpuTemp, color: .purple)
+                tempTile(label: "BAT", value: snap.batteryTemp, color: .green)
             }
             Sparkline(series: [
                 .init(values: snap.history.cpuTemp, color: .orange),
                 .init(values: snap.history.gpuTemp, color: .purple),
+                .init(values: snap.history.battTemp, color: .green),
             ], yMax: 100)
         }
+    }
+
+    // MARK: Battery
+
+    /// The inputs macOS derives battery health from. Hidden entirely on
+    /// machines without a battery.
+    @ViewBuilder
+    private var batterySection: some View {
+        if let battery = snap.battery {
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("Battery", systemImage: "battery.100",
+                              menuToggle: $menuBattery)
+                batteryHealthHeadline(battery)
+                ProgressView(value: min(max((battery.displayHealthPct ?? 0) / 100, 0), 1))
+                    .tint(healthTint(battery.displayHealthPct))
+                DisclosureGroup(isExpanded: $batteryExpanded) {
+                    batteryDetails(battery)
+                        .padding(.top, 4)
+                } label: {
+                    Text("Details")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func batteryHealthHeadline(_ battery: BatteryInfo) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(battery.displayHealthPct.map { String(format: "%.0f", $0) } ?? "—")
+                    .font(.system(size: 26, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                Text("%")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text("health")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                conditionBadge(battery.condition)
+            }
+            // Names where the headline came from. It must never show the
+            // raw division here — macOS smooths its figure, so that division
+            // yields a different number and reads as a contradiction.
+            Text(healthSource(battery))
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+        }
+        .help(healthHelp(battery))
+    }
+
+    /// Caption describing the headline's origin, so the number above is never
+    /// unattributed.
+    private func healthSource(_ battery: BatteryInfo) -> String {
+        battery.appleMaxCapacityPct != nil
+            ? "as reported by macOS"
+            : "full-charge / design capacity"
+    }
+
+    private func healthHelp(_ battery: BatteryInfo) -> String {
+        guard battery.appleMaxCapacityPct != nil else {
+            return "Full-charge capacity divided by design capacity."
+        }
+        return "The same Maximum Capacity figure System Settings shows. macOS "
+            + "smooths it, so it does not equal the plain full-charge / design "
+            + "division — that raw ratio is listed separately below."
+    }
+
+    private func batteryDetails(_ battery: BatteryInfo) -> some View {
+        VStack(spacing: 3) {
+            batteryRow("Raw ratio", rawRatioText(battery),
+                       help: "NominalChargeCapacity / DesignCapacity, computed here. "
+                           + "macOS smooths this before publishing it, so it reads "
+                           + "a little under the headline figure.")
+            batteryRow("Full charge", mAh(battery.fullChargeCapacity),
+                       help: "NominalChargeCapacity — what a full charge holds today")
+            batteryRow("Design", mAh(battery.designCapacity),
+                       help: "DesignCapacity — what the pack held when new")
+            batteryRow("Raw max", rawMaxText(battery),
+                       help: "AppleRawMaxCapacity — the gauge's own unsmoothed "
+                           + "full-charge estimate, normally a little under the nominal one")
+            batteryRow("Cycles", cyclesText(battery),
+                       help: "CycleCount / DesignCycleCount9C")
+            batteryRow("Charge", chargeText(battery),
+                       help: "CurrentCapacity / AppleRawCurrentCapacity")
+            batteryRow("Voltage", battery.voltage.map { String(format: "%.2f V", $0) } ?? "—",
+                       help: "Voltage")
+            batteryRow("Current", currentText(battery),
+                       help: "Amperage — negative while discharging")
+            batteryRow("Temperature",
+                       battery.temperature.map { String(format: "%.1f °C", $0) } ?? "—",
+                       help: "Temperature, reported in 1/100 °C")
+            batteryRow("Power source", sourceText(battery), help: "ExternalConnected / IsCharging")
+            if let minutes = battery.minutesRemaining {
+                batteryRow(battery.isCharging ? "Time to full" : "Time to empty",
+                           duration(minutes),
+                           help: battery.isCharging ? "AvgTimeToFull" : "AvgTimeToEmpty")
+            }
+        }
+    }
+
+    private func batteryRow(_ label: String, _ value: String, help: String) -> some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 6)
+            Text(value)
+                .font(.system(size: 10, design: .monospaced))
+                .monospacedDigit()
+        }
+        .help(help)
+    }
+
+    private func conditionBadge(_ condition: String) -> some View {
+        let normal = condition == "Normal"
+        return Text(condition)
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(normal ? Color.green : Color.orange)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Capsule().fill((normal ? Color.green : Color.orange).opacity(0.15)))
+    }
+
+    /// Apple treats 80% of design capacity as the service threshold.
+    private func healthTint(_ pct: Double?) -> Color {
+        guard let pct else { return .secondary }
+        if pct >= 80 { return .green }
+        if pct >= 60 { return .yellow }
+        return .red
+    }
+
+    /// Self-contained so the division and its result always agree on screen.
+    private func rawRatioText(_ battery: BatteryInfo) -> String {
+        guard let pct = battery.healthPct else { return "—" }
+        guard let full = battery.fullChargeCapacity,
+              let design = battery.designCapacity else {
+            return String(format: "%.1f%%", pct)
+        }
+        return String(format: "%d / %d = %.1f%%", full, design, pct)
+    }
+
+    private func mAh(_ value: Int?) -> String {
+        value.map { "\($0) mAh" } ?? "—"
+    }
+
+    private func rawMaxText(_ battery: BatteryInfo) -> String {
+        guard let raw = battery.rawMaxCapacity else { return "—" }
+        guard let pct = battery.rawHealthPct else { return "\(raw) mAh" }
+        return String(format: "%d mAh · %.1f%%", raw, pct)
+    }
+
+    private func cyclesText(_ battery: BatteryInfo) -> String {
+        guard let count = battery.cycleCount else { return "—" }
+        guard let design = battery.designCycleCount else { return "\(count)" }
+        return "\(count) / \(design)"
+    }
+
+    private func chargeText(_ battery: BatteryInfo) -> String {
+        let pct = battery.chargePct.map { String(format: "%.0f%%", $0) }
+        switch (pct, battery.currentCapacity) {
+        case let (pct?, capacity?): return "\(pct) · \(capacity) mAh"
+        case let (pct?, nil):       return pct
+        case let (nil, capacity?):  return "\(capacity) mAh"
+        default:                    return "—"
+        }
+    }
+
+    private func currentText(_ battery: BatteryInfo) -> String {
+        guard let amperage = battery.amperage else { return "—" }
+        guard let watts = battery.watts else { return "\(amperage) mA" }
+        return String(format: "%d mA · %.1f W", amperage, watts)
+    }
+
+    private func sourceText(_ battery: BatteryInfo) -> String {
+        if battery.isCharging { return "AC · charging" }
+        if battery.fullyCharged && battery.externalConnected { return "AC · charged" }
+        if battery.externalConnected { return "AC · not charging" }
+        return "Battery"
+    }
+
+    private func duration(_ minutes: Int) -> String {
+        minutes < 60 ? "\(minutes)m" : "\(minutes / 60)h \(minutes % 60)m"
     }
 
     private func tempTile(label: String, value: Double?, color: Color) -> some View {
@@ -275,6 +463,8 @@ struct PopoverView: View {
                 Text(value.map { String(format: "%.1f", $0) } ?? "—")
                     .font(.system(size: 22, weight: .semibold, design: .rounded))
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                 Text("°C")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)

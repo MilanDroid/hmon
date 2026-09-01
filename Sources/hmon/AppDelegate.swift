@@ -115,6 +115,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 format: "Disk: %.1f used / %.1f free GB",
                 snap.diskUsedGB, snap.diskFreeGB))
         }
+        if Prefs.enabled(Prefs.menuBattery), let battery = snap.battery {
+            let health = battery.displayHealthPct.map { String(format: "%.0f%%", $0) } ?? "--%"
+            parts.append("BAT \(health)")
+            toolTipLines.append(batteryToolTip(battery))
+        }
         if Prefs.enabled(Prefs.menuNet) {
             let inStr  = compactRate(snap.netInKBs)
             let outStr = compactRate(snap.netOutKBs)
@@ -139,6 +144,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// One-line health summary. The capacities divide to the raw ratio, not to
+    /// the smoothed figure macOS publishes, so each number is attributed.
+    private func batteryToolTip(_ battery: BatteryInfo) -> String {
+        let health = battery.displayHealthPct.map { String(format: "%.0f%%", $0) } ?? "--"
+        var line = "Battery health: \(health)"
+        if battery.appleMaxCapacityPct != nil { line += " (macOS)" }
+        if let raw = battery.healthPct, let full = battery.fullChargeCapacity,
+           let design = battery.designCapacity {
+            line += String(format: "  ·  raw %d/%d = %.1f%%", full, design, raw)
+        }
+        if let cycles = battery.cycleCount { line += "  ·  \(cycles) cycles" }
+        return line
+    }
+
     /// Multi-line text shown in the floating panel. Includes every metric we
     /// can compute regardless of menu-bar visibility — the floating panel is
     /// the place to see everything at a glance.
@@ -161,6 +180,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         lines.append(String(format: "Network ↓%6.1f KB/s  ↑%6.1f KB/s",
                             snap.netInKBs, snap.netOutKBs))
+        if let battery = snap.battery {
+            let health = battery.displayHealthPct.map { String(format: "%.0f%%", $0) } ?? "--"
+            let source = battery.appleMaxCapacityPct != nil ? " (macOS)" : ""
+            lines.append("Battery  \(health) health\(source) · \(battery.condition)")
+            // Shown as its own labelled ratio: these capacities divide to the
+            // raw figure, which macOS smooths before publishing.
+            if let raw = battery.healthPct, let full = battery.fullChargeCapacity,
+               let design = battery.designCapacity {
+                lines.append(String(format: "         raw %d / %d mAh = %.1f%%",
+                                    full, design, raw))
+            }
+            if let cycles = battery.cycleCount {
+                let rated = battery.designCycleCount.map { " of \($0)" } ?? ""
+                lines.append("         \(cycles)\(rated) cycles")
+            }
+        }
         return lines.joined(separator: "\n")
     }
 
