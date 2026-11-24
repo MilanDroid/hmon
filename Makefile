@@ -42,7 +42,6 @@ uninstall:
 	-[ -x "$(INSTALLED)/Contents/MacOS/$(APP_NAME)" ] && \
 		"$(INSTALLED)/Contents/MacOS/$(APP_NAME)" --disable-login 2>/dev/null || true
 	rm -rf "$(INSTALLED)"
-	rm -rf "/Applications/$(APP_NAME).app"
 	# Clear any lingering launch services entry
 	-launchctl bootout gui/$(shell id -u)/$(BUNDLE_ID) 2>/dev/null || true
 	rm -rf "$(HOME)/Library/Caches/$(BUNDLE_ID)"
