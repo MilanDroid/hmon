@@ -547,6 +547,6 @@ Version **0.1.0**. Honest state of things:
 
 <div align="center">
 
-Built by **[MilanDroid](http://milandroid.dev/)** · Swift 5.9 · AppKit + SwiftUI
+Built by **[MilanDroid](https://milandroid.dev/)** · Swift 5.9 · AppKit + SwiftUI
 
 </div>

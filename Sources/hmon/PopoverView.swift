@@ -160,7 +160,7 @@ struct PopoverView: View {
                 .font(.system(size: 14, weight: .semibold))
             Text("hmon")
                 .font(.system(size: 13, weight: .semibold))
-            Link(destination: URL(string: "http://milandroid.dev/")!) {
+            Link(destination: URL(string: "https://milandroid.dev/")!) {
                 Text("by MilanDroid")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.tint)
