@@ -19,10 +19,9 @@ milliseconds every two seconds.
 
 </div>
 
-<!--
-  Screenshots go here. Suggested: docs/menubar.png, docs/popover.png, docs/widget.png
-  <p align="center"><img src="docs/popover.png" width="320" alt="hmon popover"></p>
--->
+<p align="center">
+  <img src="docs/popover.png" width="301" alt="The hmon popover open under its menu bar item, showing CPU and GPU temperature, CPU load, memory, disk, network and battery health, with five-minute sparklines for temperature, CPU, memory and network">
+</p>
 
 ---
 
@@ -67,8 +66,8 @@ all six segments on, the title reads:
 | 🔋 **Battery** | `AppleSmartBattery` + `system_profiler` | Maximum-capacity health, plus every input behind it |
 | 🌐 **Network** | `getifaddrs` | Physical interfaces only — no loopback, VPN or AWDL |
 
-Every section also keeps a **five-minute sparkline** (150 samples at the 2 s
-tick) rendered on a SwiftUI `Canvas`.
+Temperature, CPU, memory and network also keep a **five-minute sparkline**
+(150 samples at the 2 s tick) rendered on a SwiftUI `Canvas`.
 
 ---
 
@@ -132,6 +131,10 @@ Three sections expand for more detail:
   voltage, amperage, instantaneous watts, pack temperature, time to full/empty.
 - **All sensors (n)** — the complete raw sensor list, each row badged
   <kbd>C</kbd> or <kbd>G</kbd> by silicon family.
+
+<p align="center">
+  <img src="docs/sensors.png" width="287" alt="The All sensors list expanded: PMU die, calibration and device probes with their temperatures, each badged C for CPU or G for GPU">
+</p>
 
 Turning a section **off** does more than hide it: while the popover and widget
 are both closed, hmon stops *collecting* that metric entirely. An hmon showing
@@ -522,6 +525,7 @@ Sources/hmon/
 └── LaunchAtLogin.swift  # SMAppService wrapper
 Resources/Info.plist     # LSUIElement, bundle id com.antony.hmon
 Makefile                 # build · app · run · install · uninstall · clean
+docs/                    # README screenshots
 ```
 
 **Zero third-party dependencies.** `Package.swift` links only AppKit, SwiftUI,
