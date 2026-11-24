@@ -63,7 +63,7 @@ all six segments on, the title reads:
 | 🧠 **CPU** | `host_processor_info` | Mean busy % across all logical cores |
 | 🧩 **Memory** | `host_statistics64` | Activity Monitor's "Memory Used" convention |
 | 💾 **Disk** | `URLResourceValues` | Purgeable-aware free space, decimal GB (Finder's convention) |
-| 🔋 **Battery** | `AppleSmartBattery` + `system_profiler` | Maximum-capacity health, plus every input behind it |
+| 🔋 **Battery** | `AppleSmartBattery` and its pack node + `system_profiler` | Maximum-capacity health, plus every input behind it |
 | 🌐 **Network** | `getifaddrs` | Physical interfaces only — no loopback, VPN or AWDL |
 
 Temperature, CPU, memory and network also keep a **five-minute sparkline**
@@ -182,7 +182,7 @@ flowchart LR
         S3["getifaddrs<br/>AF_LINK byte counters"]
         S4["URLResourceValues<br/>volume capacity"]
         S5["IOHIDEventSystemClient<br/>temperature sensors"]
-        S6["IORegistry<br/>AppleSmartBattery"]
+        S6["IORegistry<br/>AppleSmartBattery + pack"]
     end
 
     subgraph PROC["Out of process"]
@@ -416,7 +416,7 @@ $$
 | VM page statistics | 2 s | 2 s | negligible |
 | Interface byte counters | 2 s | 2 s | negligible |
 | Volume capacity | 10 s | 10 s | filesystem round trip |
-| `AppleSmartBattery` IORegistry | 10 s | 2 s | ~0.4 ms |
+| `AppleSmartBattery` + pack IORegistry | 10 s | 2 s | ~0.3 ms |
 | **HID temperature sensors** | **4 s** | 2 s | most expensive call here |
 | Full sensor list | *not read* | 2 s | same enumeration |
 | `system_profiler SPPowerDataType` | ≥ 15 min | ≥ 15 min | ~0.13 s, separate process |

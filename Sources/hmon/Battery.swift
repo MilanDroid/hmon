@@ -1,8 +1,8 @@
 import Foundation
 import IOKit
 
-/// The values macOS derives battery health from, read in a single pass over the
-/// `AppleSmartBattery` IORegistry node.
+/// The values macOS derives battery health from, read from the
+/// `AppleSmartBattery` IORegistry node and its `AppleSmartBatteryPack` child.
 ///
 /// Capacities are in mAh, voltage in mV, amperage in mA (negative while
 /// discharging), temperature in 1/100 °C — the raw units the gauge publishes.
@@ -96,19 +96,23 @@ struct BatteryInfo: Equatable {
         return Double(value) / Double(total) * 100
     }
 
-    /// Reads every field above in one IORegistry round trip (~0.4 ms). Returns
-    /// nil on machines without a battery, so desktops simply show no section.
+    /// Reads every field above from the battery's IORegistry nodes. Returns nil
+    /// on machines without a battery, so desktops simply show no section.
     static func read() -> BatteryInfo? {
-        let service = IOServiceGetMatchingService(
-            kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
-        guard service != 0 else { return nil }
-        defer { IOObjectRelease(service) }
+        guard let battery = registryProperties(ofClass: "AppleSmartBattery") else {
+            return nil
+        }
 
-        var unmanaged: Unmanaged<CFMutableDictionary>?
-        guard IORegistryEntryCreateCFProperties(
-                service, &unmanaged, kCFAllocatorDefault, 0) == KERN_SUCCESS,
-              let props = unmanaged?.takeRetainedValue() as? [String: Any]
-        else { return nil }
+        // Newer macOS (seen on 27.2) no longer publishes every value at the top
+        // of the AppleSmartBattery node: the capacities moved into its nested
+        // BatteryData, and temperature and failure status exist only in the
+        // BatteryData of its child AppleSmartBatteryPack node. Sources are
+        // merged in that order and the first one to have a key wins, so a
+        // release that still publishes a key at the top reads exactly as before.
+        let pack = registryProperties(ofClass: "AppleSmartBatteryPack")
+        var props = battery
+        props.merge(battery["BatteryData"] as? [String: Any] ?? [:]) { kept, _ in kept }
+        props.merge(pack?["BatteryData"] as? [String: Any] ?? [:]) { kept, _ in kept }
 
         var info = BatteryInfo()
         info.installed = bool(props, "BatteryInstalled")
@@ -151,6 +155,21 @@ struct BatteryInfo: Equatable {
         }
 
         return info
+    }
+
+    /// Every property of the first IORegistry node of the given class, or nil
+    /// when there is no such node (a Mac without a battery has neither).
+    private static func registryProperties(ofClass className: String) -> [String: Any]? {
+        let service = IOServiceGetMatchingService(
+            kIOMainPortDefault, IOServiceMatching(className))
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+
+        var unmanaged: Unmanaged<CFMutableDictionary>?
+        guard IORegistryEntryCreateCFProperties(
+                service, &unmanaged, kCFAllocatorDefault, 0) == KERN_SUCCESS
+        else { return nil }
+        return unmanaged?.takeRetainedValue() as? [String: Any]
     }
 
     private static func int(_ props: [String: Any], _ key: String) -> Int? {

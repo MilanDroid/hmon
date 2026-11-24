@@ -226,8 +226,9 @@ final class StatsModel: ObservableObject {
             cachedDisk = nil
         }
 
-        // One IORegistry round trip (~0.4 ms). Health barely moves, so back off
-        // to every 5th tick (10 s) when only the menu bar is watching.
+        // Two IORegistry reads, the battery node and its pack (~0.3 ms). Health
+        // barely moves, so back off to every 5th tick (10 s) when only the menu
+        // bar is watching.
         if wantBattery {
             refreshAppleHealthIfStale()
             if live || cachedBattery == nil || tickCount % 5 == 0 {

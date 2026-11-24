@@ -286,8 +286,8 @@ struct PopoverView: View {
                 sectionHeader("Battery", systemImage: "battery.100",
                               menuToggle: $menuBattery)
                 batteryHealthHeadline(battery)
-                ProgressView(value: min(max((battery.displayHealthPct ?? 0) / 100, 0), 1))
-                    .tint(healthTint(battery.displayHealthPct))
+                readingBar(battery.displayHealthPct.map { $0 / 100 },
+                           tint: healthTint(battery.displayHealthPct))
                 DisclosureGroup(isExpanded: $batteryExpanded) {
                     batteryDetails(battery)
                         .padding(.top, 4)
@@ -473,13 +473,20 @@ struct PopoverView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
             }
-            ProgressView(value: min(max((value ?? 0) / 100.0, 0), 1))
-                .progressViewStyle(.linear)
-                .tint(color)
+            readingBar(value.map { $0 / 100 }, tint: color)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 8).fill(.quaternary.opacity(0.4)))
+    }
+
+    /// A 0–1 bar for a reading that can be missing. A linear ProgressView still
+    /// paints a dot of tint at zero, which would pass for a real, near-zero
+    /// reading, so with no reading only the empty track is drawn.
+    private func readingBar(_ fraction: Double?, tint: Color) -> some View {
+        ProgressView(value: min(max(fraction ?? 0, 0), 1))
+            .progressViewStyle(.linear)
+            .tint(fraction == nil ? .clear : tint)
     }
 
     private var memSection: some View {
