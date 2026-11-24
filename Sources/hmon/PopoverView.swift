@@ -3,6 +3,10 @@ import SwiftUI
 struct PopoverView: View {
     @ObservedObject var stats: StatsModel
     var onQuit: () -> Void
+    /// Label of the footer button that runs `onQuit`. The desktop widget passes
+    /// "Close" because its `onQuit` hides only the widget, and "Quit" there
+    /// would promise the whole app goes away.
+    var quitButtonTitle: String = "Quit"
     /// Called whenever the measured content height settles. The popover host
     /// uses this to keep `NSPopover.contentSize` in sync — without it the
     /// popover anchors against a stale size and drifts off its status item.
@@ -563,7 +567,7 @@ struct PopoverView: View {
                 .foregroundStyle(.secondary)
             Spacer()
             Button(action: onQuit) {
-                Text("Quit")
+                Text(quitButtonTitle)
                     .font(.system(size: 11, weight: .medium))
             }
             .buttonStyle(.borderless)

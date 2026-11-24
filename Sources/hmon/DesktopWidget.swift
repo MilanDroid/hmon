@@ -71,15 +71,15 @@ final class DesktopWidget: NSObject, NSWindowDelegate {
 }
 
 /// Wraps `PopoverView` so it can stand alone on the desktop with a rounded glass
-/// background. Its Quit button closes only the widget: dismissing a desktop
-/// panel shouldn't also kill the menu bar app.
+/// background. Its footer button reads "Close" and hides only the widget:
+/// dismissing a desktop panel shouldn't also kill the menu bar app.
 private struct WidgetContainer: View {
     @ObservedObject var stats: StatsModel
 
     var body: some View {
         PopoverView(stats: stats, onQuit: {
             (NSApp.delegate as? AppDelegate)?.toggleDesktopWidget()
-        })
+        }, quitButtonTitle: "Close")
         .background(WidgetBackground())
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(

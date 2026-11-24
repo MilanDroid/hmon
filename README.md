@@ -161,8 +161,8 @@ defaults and relaunch:
 defaults write com.antony.hmon desktopWidget -bool true
 ```
 
-Its position is remembered across launches. Clicking **Quit** inside the widget
-closes the widget only — it will not terminate the app.
+Its position is remembered across launches. The widget's footer button reads
+**Close** and hides only the widget; quit the app from the menu bar popover.
 
 ---
 
