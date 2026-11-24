@@ -70,8 +70,9 @@ final class DesktopWidget: NSObject, NSWindowDelegate {
     }
 }
 
-/// Wraps `PopoverView` so it can stand alone on the desktop: rounded glass
-/// background, no Quit button (closing the widget shouldn't kill the app).
+/// Wraps `PopoverView` so it can stand alone on the desktop with a rounded glass
+/// background. Its Quit button closes only the widget: dismissing a desktop
+/// panel shouldn't also kill the menu bar app.
 private struct WidgetContainer: View {
     @ObservedObject var stats: StatsModel
 
