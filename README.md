@@ -40,6 +40,7 @@ milliseconds every two seconds.
 | [Troubleshooting](#troubleshooting) | The four things that actually go wrong |
 | [Project layout](#project-layout) | File-by-file map |
 | [Status](#status) | What is and isn't finished |
+| [License](#license) | MIT |
 
 ---
 
@@ -541,7 +542,12 @@ Version **0.1.0**. Honest state of things:
   network, battery — works on Intel Macs too.
 - **The desktop widget toggle is commented out** in `PopoverView.swift`; the
   feature works and is reachable only through the `desktopWidget` default.
-- **No LICENSE file yet.** Add one before publishing if this is going public.
+
+---
+
+## License
+
+[MIT](LICENSE) © 2026 Antony Brenes
 
 ---
 
